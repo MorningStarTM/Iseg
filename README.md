@@ -1,1 +1,1 @@
-# image-segmentation
+# Image-Segmentation
