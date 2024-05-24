@@ -2,6 +2,8 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras import optimizers
 from tensorflow.keras.models import Model
+from utils.metrics import Metrics
+from tensorflow.keras.metrics import Recall, Precision
 
 class Unet:
     """
@@ -93,7 +95,7 @@ class Unet:
         self.model.compile(
             loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
             optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-            metrics=["accuracy"]
+            metrics = [Metrics.dice_coef, Metrics.iou, Recall(), Precision()]
         )
         self.model.fit(train_ds, epochs=epochs, validation_data=valid_ds, callbacks=callbacks)
     
@@ -119,16 +121,15 @@ class Unet:
 
 
 
-
-class AttentionUNet(Model):
-    def __init__(self, input_shape, n_filters, n_class, activation, conv_block_size=1):
-        super(AttentionUNet, self).__init__()
+class AttentionUNet:
+    def __init__(self, target_shape, n_filters:list, n_class:int, activation:str, conv_block_size=1):
         self.num_filters = n_filters
         self.num_block = len(n_filters)
-        self.input_shape = input_shape
+        self.target_shape = target_shape
         self.conv_block_size = conv_block_size
         self.n_class = n_class
         self.activation = activation
+        self.model = self.build_att_unet()
 
 
     def conv_block(self, input_layer, num_filters):
@@ -207,22 +208,59 @@ class AttentionUNet(Model):
         """
         This function will build the Attention U-Net architecture.
         """
-        inputs = layers.Input(self.input_shape)
+        inputs = layers.Input(shape=self.target_shape)
         skips = []
         x = inputs
 
         for i in range(self.num_block):
-            s, x = self.encoder_block(x, filters=self.num_filters[i])
+            s, x = self.encoder_block(x, filters=self.num_filters[i], num_blocks=2)
             skips.append(s)
 
         b = self.conv_block(x, self.num_filters[-1] * 2)
         print(b.shape)
 
         for i in range(self.num_block):
-            b = self.decoder_block(b, skips[-(i+1)], self.num_filters[-(i+1)])
+            b = self.decoder_block(b, skips[-(i+1)], self.num_filters[-(i+1)], num_blocks=2)
 
         outputs = layers.Conv2D(self.n_class, 1, padding='same', activation=self.activation, name="classification_layer")(b)
 
         model = Model(inputs, outputs, name='Attention U-Net')
         return model
     
+
+    def __call__(self):
+        return self.build_att_unet()
+    
+    def summary(self):
+        """
+        This function returns summary of model
+        """
+        self.model.summary()
+
+    def train(self, train_ds, valid_ds, epochs=25, callbacks=None):
+        """
+        Function for train the model
+
+        Args:
+            train batch (tf.dataset)
+            valid batch (tf.dataset)
+        """
+        self.model.compile(
+            loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+            metrics = [Metrics.dice_coef, Metrics.iou, Recall(), Precision()]
+        )
+        self.model.fit(train_ds, epochs=epochs, validation_data=valid_ds, callbacks=callbacks)
+
+
+    def prediction(self, image):
+        """
+        This function for prediction
+        
+        Args:
+            Image (as batch)
+
+        Return:
+            prediction (array)
+        """
+        self.model.predict(image)
